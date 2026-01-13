@@ -1,163 +1,270 @@
 import { db } from '@/db/client';
+import type { Note } from '@/db/schema';
 import { notes } from '@/db/schema';
-import { textModel } from '@/lib/gemini';
+import { useTheme } from '@/hooks/useTheme';
+import { proModel } from '@/lib/gemini';
 import { eq } from 'drizzle-orm';
-import { LinearGradient } from 'expo-linear-gradient';
-import { Stack, useLocalSearchParams, useRouter } from 'expo-router';
-import { ArrowLeft, CheckCircle, XCircle } from 'phosphor-react-native';
-import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, ScrollView, Text, TouchableOpacity, View } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
+import { StatusBar } from 'expo-status-bar';
+import { ArrowLeft, Check, X } from 'lucide-react-native';
+import { useEffect, useState } from 'react';
+import { ActivityIndicator, Alert, ScrollView, Text, TouchableOpacity, View } from 'react-native';
 
 type Question = {
-    id: number;
-    text: string;
-    options: string[];
-    correctIndex: number;
+    type: 'mcq' | 'true-false';
+    question: string;
+    options?: string[];
+    answer: string;
     explanation: string;
 };
 
-export default function QuizScreen() {
-    const { id } = useLocalSearchParams();
+export default function QuizSession() {
     const router = useRouter();
+    const { id, topic } = useLocalSearchParams();
+    const { theme, isDark } = useTheme();
+
+    const [note, setNote] = useState<Note | null>(null);
     const [questions, setQuestions] = useState<Question[]>([]);
-    const [currentQ, setCurrentQ] = useState(0);
-    const [selectedOption, setSelectedOption] = useState<number | null>(null);
-    const [showResult, setShowResult] = useState(false);
+    const [currentIndex, setCurrentIndex] = useState(0);
+    const [selectedAnswer, setSelectedAnswer] = useState<string | null>(null);
+    const [showFeedback, setShowFeedback] = useState(false);
     const [score, setScore] = useState(0);
-    const [loading, setLoading] = useState(true);
+    const [generating, setGenerating] = useState(false);
 
     useEffect(() => {
-        generateQuiz();
+        loadNote();
     }, [id]);
 
-    const generateQuiz = async () => {
+    const loadNote = async () => {
+        const result = await db.select().from(notes).where(eq(notes.id, Number(id)));
+        if (result.length > 0) {
+            setNote(result[0]);
+            generateQuiz(result[0]);
+        }
+    };
+
+    const generateQuiz = async (noteData: Note) => {
+        setGenerating(true);
         try {
-            // @ts-ignore
-            const noteRes = await db.select().from(notes).where(eq(notes.id, Number(id)));
-            const content = noteRes[0]?.content || '';
+            const topicFilter = topic ? `Focus on the topic: ${topic}` : 'Cover all topics';
+            const prompt = `Generate 5 quiz questions from this educational note.
+${topicFilter}
 
-            const prompt = `Based on these notes, generate 3 multiple choice questions. 
-      Return ONLY a raw JSON array (no markdown) with this structure: 
-      [{id: number, text: string, options: string[], correctIndex: number, explanation: string}].
-      Notes: ${content.substring(0, 1000)}`;
+Note Title: ${noteData.title}
+Content: ${noteData.content}
 
-            const result = await textModel.generateContent(prompt);
-            const txt = result.response.text();
-            // Clean up markdown code blocks if any
-            const jsonStr = txt.replace(/```json/g, '').replace(/```/g, '').trim();
-            const data = JSON.parse(jsonStr);
-            setQuestions(data);
-        } catch (e) {
-            console.error(e);
-            // Fallback/Error state
+Create a mix of:
+- Multiple choice questions (4 options each)
+- True/False questions
+
+Respond in JSON format:
+{
+  "questions": [
+    {
+      "type": "mcq",
+      "question": "...",
+      "options": ["A", "B", "C", "D"],
+      "answer": "B",
+      "explanation": "..."
+    },
+    {
+      "type": "true-false",
+      "question": "...",
+      "answer": "True",
+      "explanation": "..."
+    }
+  ]
+}`;
+
+            const result = await proModel.generateContent(prompt);
+            const responseText = result.response.text();
+            const jsonMatch = responseText.match(/\{[\s\S]*\}/);
+
+            if (jsonMatch) {
+                const data = JSON.parse(jsonMatch[0]);
+                setQuestions(data.questions);
+            }
+        } catch (error) {
+            console.error(error);
+            Alert.alert('Error', 'Failed to generate quiz');
         } finally {
-            setLoading(false);
+            setGenerating(false);
         }
     };
 
-    const handleOption = (index: number) => {
-        if (showResult) return;
-        setSelectedOption(index);
-        setShowResult(true);
-        if (index === questions[currentQ].correctIndex) {
-            setScore(s => s + 1);
+    const handleAnswer = (answer: string) => {
+        setSelectedAnswer(answer);
+        setShowFeedback(true);
+
+        if (answer === questions[currentIndex].answer) {
+            setScore(score + 1);
         }
     };
 
-    const nextQuestion = () => {
-        if (currentQ < questions.length - 1) {
-            setCurrentQ(c => c + 1);
-            setSelectedOption(null);
-            setShowResult(false);
+    const handleNext = () => {
+        if (currentIndex < questions.length - 1) {
+            setCurrentIndex(currentIndex + 1);
+            setSelectedAnswer(null);
+            setShowFeedback(false);
         } else {
-            // Finish
-            router.back();
+            // Quiz complete
+            const finalScore = Math.round((score / questions.length) * 100);
+            Alert.alert(
+                'Quiz Complete!',
+                `Your score: ${finalScore}%\n${score}/${questions.length} correct`,
+                [{ text: 'OK', onPress: () => router.back() }]
+            );
         }
     };
 
-    if (loading) {
+    if (generating) {
         return (
-            <View className="flex-1 justify-center items-center bg-[#0F2027]">
-                <ActivityIndicator size="large" color="#a855f7" />
-                <Text className="text-white mt-4">Generating Quiz...</Text>
+            <View className="flex-1 items-center justify-center" style={{ backgroundColor: theme.background }}>
+                <ActivityIndicator size="large" color={theme.primary} />
+                <Text className="mt-4" style={{ color: theme.text }}>
+                    Generating quiz...
+                </Text>
             </View>
         );
     }
 
     if (questions.length === 0) {
         return (
-            <View className="flex-1 justify-center items-center bg-[#0F2027]">
-                <Text className="text-white">Could not generate quiz from this note.</Text>
-                <TouchableOpacity onPress={() => router.back()}><Text className="text-blue-400 mt-4">Go Back</Text></TouchableOpacity>
+            <View className="flex-1 items-center justify-center" style={{ backgroundColor: theme.background }}>
+                <Text style={{ color: theme.text }}>No questions generated</Text>
             </View>
-        )
+        );
     }
 
-    const q = questions[currentQ];
+    const currentQ = questions[currentIndex];
+    const isCorrect = selectedAnswer === currentQ.answer;
 
     return (
-        <View className="flex-1 bg-[#0F2027]">
-            <Stack.Screen options={{ headerShown: false }} />
-            <LinearGradient colors={['transparent', 'rgba(168, 85, 247, 0.1)']} className="absolute inset-0" />
+        <View className="flex-1" style={{ backgroundColor: theme.background }}>
+            <StatusBar style={isDark ? 'light' : 'dark'} />
 
             {/* Header */}
-            <View className="pt-12 pb-4 px-4 flex-row items-center">
-                <TouchableOpacity onPress={() => router.back()} className="p-2 bg-white/10 rounded-full mr-4">
-                    <ArrowLeft color="white" size={24} />
+            <View
+                className="flex-row items-center justify-between px-6 pt-14 pb-4"
+                style={{ backgroundColor: theme.surface }}
+            >
+                <TouchableOpacity
+                    className="w-10 h-10 items-center justify-center rounded-xl"
+                    style={{ backgroundColor: theme.surfaceVariant }}
+                    onPress={() => router.back()}
+                >
+                    <ArrowLeft size={20} color={theme.text} />
                 </TouchableOpacity>
-                <Text className="text-white text-xl font-bold">Quiz Mode</Text>
-                <View className="flex-1 items-end">
-                    <Text className="text-purple-400 font-bold">Score: {score}</Text>
-                </View>
+
+                <Text className="font-semibold" style={{ color: theme.text }}>
+                    Question {currentIndex + 1} / {questions.length}
+                </Text>
+
+                <View className="w-10" />
             </View>
 
-            <ScrollView className="flex-1 px-6 pt-4">
-                {/* Progress Bar */}
-                <View className="h-1 bg-white/10 rounded-full mb-8">
-                    <View className="h-full bg-purple-500 rounded-full" style={{ width: `${((currentQ + 1) / questions.length) * 100}%` }} />
+            <ScrollView className="flex-1 px-6 pt-6">
+                {/* Question */}
+                <View className="p-6 rounded-xl mb-6" style={{ backgroundColor: theme.surface }}>
+                    <Text className="text-xl font-semibold leading-7" style={{ color: theme.text }}>
+                        {currentQ.question}
+                    </Text>
                 </View>
 
-                <Text className="text-2xl text-white font-bold mb-8">{q.text}</Text>
-
-                <View className="space-y-4">
-                    {q.options.map((opt, idx) => {
-                        let bgClass = "bg-white/5 border-white/10";
-                        if (showResult) {
-                            if (idx === q.correctIndex) bgClass = "bg-green-500/20 border-green-500";
-                            else if (idx === selectedOption) bgClass = "bg-red-500/20 border-red-500";
-                        } else if (selectedOption === idx) {
-                            bgClass = "bg-purple-500/20 border-purple-500";
-                        }
-
-                        return (
-                            <TouchableOpacity
-                                key={idx}
-                                onPress={() => handleOption(idx)}
-                                activeOpacity={0.8}
-                                disabled={showResult}
-                                className={`p-4 rounded-xl border ${bgClass} flex-row justify-between items-center`}
+                {/* Options */}
+                <View className="gap-3 mb-6">
+                    {currentQ.type === 'mcq' && currentQ.options?.map((option, idx) => (
+                        <TouchableOpacity
+                            key={idx}
+                            className="p-4 rounded-xl flex-row items-center justify-between"
+                            style={{
+                                backgroundColor:
+                                    showFeedback && option === currentQ.answer
+                                        ? theme.success
+                                        : showFeedback && option === selectedAnswer && !isCorrect
+                                            ? theme.error
+                                            : theme.surface,
+                            }}
+                            onPress={() => !showFeedback && handleAnswer(option)}
+                            disabled={showFeedback}
+                        >
+                            <Text
+                                className="text-base flex-1 font-medium"
+                                style={{
+                                    color:
+                                        showFeedback && (option === currentQ.answer || option === selectedAnswer)
+                                            ? '#FFFFFF'
+                                            : theme.text,
+                                }}
                             >
-                                <Text className="text-gray-200 text-lg font-medium">{opt}</Text>
-                                {showResult && idx === q.correctIndex && <CheckCircle color="#22c55e" size={24} weight="fill" />}
-                                {showResult && idx === selectedOption && idx !== q.correctIndex && <XCircle color="#ef4444" size={24} weight="fill" />}
-                            </TouchableOpacity>
-                        );
-                    })}
+                                {option}
+                            </Text>
+                            {showFeedback && option === currentQ.answer && (
+                                <Check size={20} color="#FFFFFF" />
+                            )}
+                            {showFeedback && option === selectedAnswer && !isCorrect && (
+                                <X size={20} color="#FFFFFF" />
+                            )}
+                        </TouchableOpacity>
+                    ))}
+
+                    {currentQ.type === 'true-false' && ['True', 'False'].map((option) => (
+                        <TouchableOpacity
+                            key={option}
+                            className="p-4 rounded-xl flex-row items-center justify-between"
+                            style={{
+                                backgroundColor:
+                                    showFeedback && option === currentQ.answer
+                                        ? theme.success
+                                        : showFeedback && option === selectedAnswer && !isCorrect
+                                            ? theme.error
+                                            : theme.surface,
+                            }}
+                            onPress={() => !showFeedback && handleAnswer(option)}
+                            disabled={showFeedback}
+                        >
+                            <Text
+                                className="text-base font-medium"
+                                style={{
+                                    color:
+                                        showFeedback && (option === currentQ.answer || option === selectedAnswer)
+                                            ? '#FFFFFF'
+                                            : theme.text,
+                                }}
+                            >
+                                {option}
+                            </Text>
+                            {showFeedback && option === currentQ.answer && (
+                                <Check size={20} color="#FFFFFF" />
+                            )}
+                        </TouchableOpacity>
+                    ))}
                 </View>
 
-                {showResult && (
-                    <View className="mt-8 p-4 bg-white/5 rounded-xl border-l-4 border-yellow-400">
-                        <Text className="text-yellow-400 font-bold mb-1">Explanation</Text>
-                        <Text className="text-gray-300">{q.explanation}</Text>
+                {/* Explanation */}
+                {showFeedback && (
+                    <View className="p-4 rounded-xl mb-6" style={{ backgroundColor: theme.surface }}>
+                        <Text className="text-sm font-semibold mb-2" style={{ color: theme.primary }}>
+                            Explanation
+                        </Text>
+                        <Text className="text-base leading-6" style={{ color: theme.text }}>
+                            {currentQ.explanation}
+                        </Text>
                     </View>
                 )}
             </ScrollView>
 
-            {/* Footer */}
-            {showResult && (
-                <View className="p-6">
-                    <TouchableOpacity onPress={nextQuestion} className="w-full bg-purple-600 py-4 rounded-xl items-center shadow-lg shadow-purple-500/40">
-                        <Text className="text-white font-bold text-lg">{currentQ < questions.length - 1 ? "Next Question" : "Finish"}</Text>
+            {/* Next Button */}
+            {showFeedback && (
+                <View className="px-6 pb-6">
+                    <TouchableOpacity
+                        className="py-4 rounded-xl items-center"
+                        style={{ backgroundColor: theme.primary }}
+                        onPress={handleNext}
+                    >
+                        <Text className="font-semibold text-lg" style={{ color: '#FFFFFF' }}>
+                            {currentIndex < questions.length - 1 ? 'Next Question' : 'Finish Quiz'}
+                        </Text>
                     </TouchableOpacity>
                 </View>
             )}

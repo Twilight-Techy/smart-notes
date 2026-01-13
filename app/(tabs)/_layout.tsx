@@ -1,55 +1,73 @@
-import { BlurView } from 'expo-blur';
+import { useTheme } from '@/hooks/useTheme';
 import { Tabs } from 'expo-router';
-import { useColorScheme } from 'nativewind';
-import { Brain, Gear, House } from 'phosphor-react-native';
-import { Platform } from 'react-native';
+import { BookMarked, GraduationCap, Sparkles } from 'lucide-react-native';
 
 export default function TabLayout() {
-  const { colorScheme } = useColorScheme();
+  const { theme } = useTheme();
 
   return (
     <Tabs
       screenOptions={{
         headerShown: false,
         tabBarStyle: {
-          position: 'absolute',
-          bottom: 0,
-          left: 0,
-          right: 0,
-          elevation: 0,
+          backgroundColor: theme.surface,
+          borderTopColor: theme.border,
           borderTopWidth: 0,
-          backgroundColor: Platform.OS === 'ios' ? 'transparent' : 'rgba(0,0,0,0.8)',
-          height: 80,
-          paddingBottom: 20
+          height: 70,
+          paddingBottom: 12,
+          paddingTop: 8,
+          shadowColor: theme.primary,
+          shadowOffset: { width: 0, height: -4 },
+          shadowOpacity: 0.1,
+          shadowRadius: 12,
+          elevation: 10,
         },
-        tabBarBackground: () =>
-          Platform.OS === 'ios' ? (
-            <BlurView intensity={80} style={{ flex: 1 }} tint="dark" />
-          ) : null,
-        tabBarActiveTintColor: '#60A5FA', // blue-400
-        tabBarInactiveTintColor: '#9CA3AF',
-        tabBarShowLabel: false,
+        tabBarActiveTintColor: theme.primary,
+        tabBarInactiveTintColor: theme.textTertiary,
+        tabBarLabelStyle: {
+          fontSize: 11,
+          fontWeight: '600',
+          marginTop: 4,
+        },
       }}
     >
       <Tabs.Screen
         name="index"
         options={{
-          title: 'Home',
-          tabBarIcon: ({ color }) => <House size={28} color={color} weight="fill" />,
+          title: 'Library',
+          tabBarIcon: ({ color, focused }) => (
+            <BookMarked
+              size={focused ? 26 : 24}
+              color={color}
+              strokeWidth={focused ? 2.5 : 2}
+            />
+          ),
         }}
       />
       <Tabs.Screen
         name="quizzes"
         options={{
-          title: 'Quizzes',
-          tabBarIcon: ({ color }) => <Brain size={28} color={color} weight="fill" />,
+          title: 'Study',
+          tabBarIcon: ({ color, focused }) => (
+            <GraduationCap
+              size={focused ? 26 : 24}
+              color={color}
+              strokeWidth={focused ? 2.5 : 2}
+            />
+          ),
         }}
       />
       <Tabs.Screen
         name="settings"
         options={{
-          title: 'Settings',
-          tabBarIcon: ({ color }) => <Gear size={28} color={color} weight="fill" />,
+          title: 'Insights',
+          tabBarIcon: ({ color, focused }) => (
+            <Sparkles
+              size={focused ? 26 : 24}
+              color={color}
+              strokeWidth={focused ? 2.5 : 2}
+            />
+          ),
         }}
       />
     </Tabs>

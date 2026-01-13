@@ -8,6 +8,13 @@
       "when": 1768193615248,
       "tag": "0000_flashy_nick_fury",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "6",
+      "when": 1768201364796,
+      "tag": "0001_tense_talon",
+      "breakpoints": true
     }
   ]
 }

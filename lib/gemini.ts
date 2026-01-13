@@ -1,12 +1,15 @@
 import { GoogleGenerativeAI } from '@google/generative-ai';
 
-const API_KEY = process.env.EXPO_PUBLIC_GEMINI_API_KEY || '';
+const apiKey = process.env.EXPO_PUBLIC_GEMINI_API_KEY;
 
-if (!API_KEY) {
-    console.warn("Gemini API Key is missing!");
+if (!apiKey) {
+    throw new Error('EXPO_PUBLIC_GEMINI_API_KEY is not set');
 }
 
-const genAI = new GoogleGenerativeAI(API_KEY);
+const genAI = new GoogleGenerativeAI(apiKey);
 
-export const textModel = genAI.getGenerativeModel({ model: "gemini-pro" });
-export const visionModel = genAI.getGenerativeModel({ model: "gemini-pro-vision" });
+// Use Pro model for detailed analysis (summarization, concept extraction)
+export const proModel = genAI.getGenerativeModel({ model: 'gemini-1.5-pro' });
+
+// Use Flash model for fast chat interactions
+export const flashModel = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' });
